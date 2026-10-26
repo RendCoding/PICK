@@ -1,0 +1,1000 @@
+#!/usr/bin/env bash
+
+# PICK — Personal Interactive Command Kernel
+VERSION="0.1.8"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/pick/commands.tsv"
+
+set -u
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+RESET='\033[0m'
+
+error() { printf "${RED}pick: error:${RESET} %s\n" "$1" >&2; }
+hint() { printf "${DIM}Did you mean ${RESET}${CYAN}pick %s${RESET}${DIM}?${RESET}\n" "$1" >&2; }
+
+show_logo() {
+    printf "${CYAN}"
+    cat <<'LOGO'
+ ____  ___ ____ _  __
+|  _ \|_ _/ ___| |/ /
+| |_) || | |   | ' /
+|  __/ | | |___| . \
+|_|   |___\____|_|\_\
+LOGO
+    printf "${RESET}"
+    printf "${DIM}Personal Interactive Command Kernel${RESET}\n"
+}
+
+ensure_config() {
+    mkdir -p "$(dirname "$CONFIG")"
+    if [[ ! -e "$CONFIG" ]]; then
+        cat > "$CONFIG" <<'CONFIG_EOF'
+# PICK custom commands
+# Format: name|description|command
+# Example: browser|Open my browser|firefox
+# Example: files|Open my files|kitty -e yazi
+CONFIG_EOF
+    fi
+}
+
+show_help() {
+    printf "\n"
+    show_logo
+    printf "\n${GREEN}USAGE${RESET}\n  pick <command>\n\n"
+    printf "${GREEN}CORE COMMANDS${RESET}\n"
+    printf "  -help         Show this help page\n"
+    printf "  -version      Show PICK version\n"
+    printf "  -V            Show this update's changes\n"
+    printf "  -E            Search PICK commands\n"
+    printf "  config        Edit your custom command registry\n"
+    printf "  backup        Create a PICK backup\n"
+    printf "  backup -E     Open the backup folder in your file manager\n"
+    printf "  run           Manage and launch personal actions\n"
+    printf "  theme         Save wallpaper profiles (preview only)\n"
+    printf "  audio         Inspect audio devices\n"
+    printf "  doctor        Diagnose PICK\n"
+    printf "  centre        Open the PICK Command Centre\n"
+    printf "  memory        Search/save command recipes\n"
+    printf "  mission       Manage multi-step workflows\n"
+    printf "  repair        Review guided repair recommendations\n"
+    printf "  extension     Manage local extension packs\n\n"
+    printf "${GREEN}SHELL COMMANDS${RESET}\n"
+    printf "  shell         Open the shell picker\n"
+    printf "  add           Add a shell to your collection\n"
+    printf "  del           Remove a shell from your collection\n"
+    printf "  shellsearch   Search shells (W.I.P.)\n\n"
+    printf "${DIM}Custom commands can be added with 'pick config'.${RESET}\n"
+    printf "${DIM}Your terminal. Your language. Your rules.${RESET}\n\n"
+}
+
+show_version() {
+    printf "${CYAN}PICK${RESET} %s\n" "$VERSION"
+    printf "%s\n" "Personal Interactive Command Kernel"
+}
+
+show_changes() {
+    printf "\n${CYAN}PICK %s — UPDATE NOTES${RESET}\n\n" "$VERSION"
+    printf '0.1.8 — Release fixes\n'
+    printf '  • Fixed release packaging: removed copied terminal prompt from script boundaries\n'
+    printf '  • Prevented prompt text from being executed at startup and shutdown\n'
+    printf '  • Added the common misspelling alias extenstion for extension\n'
+    printf '  • Retained the 0.1.7 Command Centre, Memory, Missions, Repair and Extensions\n'
+    printf '  • Kept existing backup/restore and shell integration\n'
+}
+
+
+# PICK_BACKUP_SYSTEM_V1
+BACKUP_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/pick/backups"
+
+backup_command() {
+    local action="${1:-create}"
+    [[ $# -gt 0 ]] && shift
+    mkdir -p "$BACKUP_ROOT" || {
+        error "could not create the backup directory."
+        return 1
+    }
+
+    case "$action" in
+        -E|--explore|open)
+            local fm
+            fm=""
+            for candidate in dolphin thunar nautilus nemo pcmanfm spacefm; do
+                if command -v "$candidate" >/dev/null 2>&1; then
+                    fm="$candidate"
+                    break
+                fi
+            done
+            if [[ -z "$fm" ]]; then
+                error "no supported graphical file manager found."
+                printf "Install or tell me which file manager you use.\n" >&2
+                return 1
+            fi
+            "$fm" "$BACKUP_ROOT" >/dev/null 2>&1 &
+            printf "Opening PICK backups with %s: %s\n" "$fm" "$BACKUP_ROOT"
+            ;;
+        -l|list|--list)
+            printf "PICK backups: %s\n" "$BACKUP_ROOT"
+            find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+                -name 'pick-*' -printf '%f\n' | sort -r
+            ;;
+        -r|restore|--restore)
+            local target="${1:-}"
+            [[ -n "$target" && "$target" != */* && "$target" != *..* ]] || {
+                error "usage: pick backup -r BACKUP_NAME"
+                return 2
+            }
+            local source="$BACKUP_ROOT/$target/pick"
+            [[ -f "$source" ]] || {
+                error "backup '$target' does not contain a PICK executable."
+                return 1
+            }
+            local current="$HOME/.local/bin/pick"
+            local safety="$BACKUP_ROOT/pre-restore-$(date +%Y%m%d-%H%M%S)-$$"
+            mkdir -p "$safety"
+            [[ -f "$current" ]] && cp -p "$current" "$safety/pick"
+            [[ -f "$CONFIG" ]] && cp -p "$CONFIG" "$safety/commands.tsv"
+            cp -p "$source" "$current" || return 1
+            if [[ -f "$BACKUP_ROOT/$target/commands.tsv" ]]; then
+                mkdir -p "$(dirname "$CONFIG")"
+                cp -p "$BACKUP_ROOT/$target/commands.tsv" "$CONFIG"
+            fi
+            chmod +x "$current"
+            printf "Restored PICK from %s\n" "$target"
+            ;;
+        create|-c|--create|"")
+            local stamp dest
+            stamp="$(date +%Y%m%d-%H%M%S)"
+            dest="$BACKUP_ROOT/pick-$stamp-$$"
+            mkdir -p "$dest" || return 1
+            cp -p "$HOME/.local/bin/pick" "$dest/pick" || return 1
+            [[ -f "$CONFIG" ]] && cp -p "$CONFIG" "$dest/commands.tsv"
+            printf "PICK backup created: %s\n" "$(basename "$dest")"
+            ;;
+        *)
+            error "unknown backup option '$action'."
+            printf "Usage: pick backup [-E|-l|-r BACKUP_NAME]\n"
+            return 2
+            ;;
+    esac
+}
+run_shell() {
+    if command -v pickshell >/dev/null 2>&1; then
+        command pickshell
+    else
+        error "'pickshell' was not found."
+        return 127
+    fi
+}
+
+run_command() {
+    local name="$1"
+    shift
+
+    case "$name" in
+        -help|--help|-h|help) show_help ;;
+        -version|--version|version) show_version ;;
+        -V) show_changes ;;
+        -E|--explore) explorer ;;
+        config) edit_config ;;
+        backup) backup_command "$@" ;;
+        run) action_command "$@" ;;
+        theme) theme_command "$@" ;;
+        audio) audio_command "$@" ;;
+        doctor|check) doctor_command ;;
+        centre|center|dashboard) centre_command ;;
+        memory) memory_command "$@" ;;
+        mission|missions) mission_command "$@" ;;
+        repair) repair_command "$@" ;;
+        extension|extensions|extenstion) extension_command "$@" ;;
+        shell) run_shell "$@" ;;
+        add) command addshell "$@" ;;
+        del) command delshell "$@" ;;
+        shellsearch)
+            printf "${CYAN}PICK:${RESET} shellsearch is a work in progress.\n"
+            ;;
+        *)
+            run_custom "$name" "$@"
+            ;;
+    esac
+}
+
+edit_config() {
+    ensure_config
+    local editor="${VISUAL:-${EDITOR:-nano}}"
+    "$editor" "$CONFIG"
+}
+
+load_custom() {
+    ensure_config
+    local name desc cmd
+    while IFS='|' read -r name desc cmd; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        printf '%s|%s|%s\n' "$name" "$desc" "$cmd"
+    done < "$CONFIG"
+}
+
+run_custom() {
+    local wanted="$1"
+    shift
+    local name desc cmd
+
+    while IFS='|' read -r name desc cmd; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        if [[ "$name" == "$wanted" ]]; then
+            if [[ -z "$cmd" ]]; then
+                error "custom command '$name' has no command configured."
+                return 2
+            fi
+            # Custom registry commands are trusted shell commands defined by the user.
+            PICK_ARGS=("$@") bash -c "$cmd" -- "$@"
+            return $?
+        fi
+    done < "$CONFIG"
+
+    error "unknown command '$wanted'."
+    hint "-help"
+    return 2
+}
+
+explorer() {
+    local selected query name desc cmd
+    local -a entries=(
+        "-help|Show PICK help|-help"
+        "-version|Show PICK version|-version"
+        "-V|Show changes in this update|-V"
+        "config|Edit custom commands|config"
+        "run|Manage personal actions|run"
+        "theme|Manage wallpaper profiles|theme"
+        "audio|Inspect audio devices|audio"
+        "doctor|Diagnose PICK|doctor"
+        "centre|Open PICK Command Centre|centre"
+        "memory|Search and save recipes|memory"
+        "mission|Run multi-step workflows|mission"
+        "repair|Review safe repair suggestions|repair"
+        "extension|Manage local extension packs|extension"
+        "shell|Open the shell picker|shell"
+        "add|Add a shell|add"
+        "del|Remove a shell|del"
+        "shellsearch|Search shells (W.I.P.)|shellsearch"
+    )
+
+    while IFS='|' read -r name desc cmd; do
+        [[ -z "$name" ]] && continue
+        entries+=("$name|$desc|$name")
+    done < <(load_custom)
+
+    if [[ -t 0 && -t 1 ]] && command -v fzf >/dev/null 2>&1; then
+        selected=$(
+            printf '%s\n' "${entries[@]}" |
+            awk -F'|' '{printf "%-16s %s\n", $1, $2}' |
+            fzf --prompt='pick> ' --header='PICK — Search commands' |
+            awk '{print $1}'
+        ) || return 0
+        [[ -n "$selected" ]] && run_command "$selected"
+        return $?
+    fi
+
+    if [[ ! -t 0 ]]; then
+        error "the explorer needs an interactive terminal."
+        return 1
+    fi
+
+    while true; do
+        printf "\n${CYAN}PICK — COMMAND SEARCH${RESET}\n"
+        read -r -p "Search (q to exit)> " query || return 0
+        [[ "$query" == q ]] && return 0
+
+        local -a matches=()
+        local entry
+        for entry in "${entries[@]}"; do
+            if [[ "${entry,,}" == *"${query,,}"* ]]; then
+                matches+=("$entry")
+            fi
+        done
+
+        if [[ ${#matches[@]} -eq 0 ]]; then
+            printf "No matching commands.\n"
+            continue
+        fi
+
+        local i=1
+        for entry in "${matches[@]}"; do
+            IFS='|' read -r name desc cmd <<< "$entry"
+            printf "  %d) %-14s %s\n" "$i" "$name" "$desc"
+            ((i++))
+        done
+
+        read -r -p "Select number (Enter to search again): " selected
+        [[ -z "$selected" ]] && continue
+        [[ "$selected" =~ ^[0-9]+$ ]] || {
+            printf "Enter a number from the list.\n"
+            continue
+        }
+        (( selected >= 1 && selected <= ${#matches[@]} )) || {
+            printf "Selection out of range.\n"
+            continue
+        }
+
+        IFS='|' read -r name desc cmd <<< "${matches[$((selected-1))]}"
+        run_command "$name"
+    done
+}
+
+
+# PICK_FEATURES_V1
+PICK_ACTIONS="${XDG_CONFIG_HOME:-$HOME/.config}/pick/actions.tsv"
+PICK_THEMES="${XDG_CONFIG_HOME:-$HOME/.config}/pick/themes.tsv"
+PICK_DATA="${XDG_DATA_HOME:-$HOME/.local/share}/pick"
+PICK_HISTORY="$PICK_DATA/history.log"
+PICK_MISSIONS="${XDG_CONFIG_HOME:-$HOME/.config}/pick/missions"
+PICK_EXTENSIONS="${XDG_CONFIG_HOME:-$HOME/.config}/pick/extensions"
+
+feature_files() {
+    mkdir -p "$(dirname "$PICK_ACTIONS")"
+    [[ -e "$PICK_ACTIONS" ]] || printf '# name|description|command\n' > "$PICK_ACTIONS"
+    [[ -e "$PICK_THEMES" ]] || printf '# name|wallpaper_path\n' > "$PICK_THEMES"
+}
+
+action_command() {
+    feature_files
+    local sub="${1:-list}" name desc cmd query choice
+    [[ $# -eq 0 ]] || shift
+
+    case "$sub" in
+        add)
+            name="${1:-}"
+            [[ -n "$name" ]] || { echo "Usage: pick run add NAME"; return 2; }
+            [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || {
+                echo "Use letters, numbers, _ or - in action names."
+                return 2
+            }
+            if awk -F'|' -v n="$name" '$1==n {found=1} END{exit !found}' "$PICK_ACTIONS"; then
+                echo "Action already exists: $name"
+                return 1
+            fi
+            local editor="${VISUAL:-${EDITOR:-nano}}"
+            printf '%s||\n' "$name" >> "$PICK_ACTIONS"
+            "$editor" "$PICK_ACTIONS"
+            ;;
+        list)
+            printf '%-20s %s\n' "ACTION" "DESCRIPTION"
+            awk -F'|' '!/^#/ && NF>=1 && $1!="" {printf "%-20s %s\n",$1,$2}' "$PICK_ACTIONS"
+            ;;
+        search)
+            query="${1:-}"
+            awk -F'|' -v q="$query" 'BEGIN{IGNORECASE=1} !/^#/ && (q=="" || index($1,q) || index($2,q)) {print $1 " — " $2}' "$PICK_ACTIONS"
+            ;;
+        remove|del)
+            name="${1:-}"
+            [[ -n "$name" ]] || { echo "Usage: pick run remove NAME"; return 2; }
+            local tmp
+            tmp="$(mktemp)"
+            awk -F'|' -v n="$name" '$1!=n' "$PICK_ACTIONS" > "$tmp"
+            cat "$tmp" > "$PICK_ACTIONS"
+            rm -f "$tmp"
+            echo "Removed action: $name"
+            ;;
+        launch)
+            name="${1:-}"
+            [[ -n "$name" ]] || { echo "Usage: pick run launch NAME"; return 2; }
+            IFS='|' read -r _ desc cmd < <(awk -F'|' -v n="$name" '$1==n {print; exit}' "$PICK_ACTIONS")
+            [[ -n "${cmd:-}" ]] || { echo "No command configured for '$name'."; return 1; }
+            bash -c "$cmd"
+            ;;
+        *)
+            if [[ -n "$sub" && "$sub" != "list" ]]; then
+                IFS='|' read -r _ desc cmd < <(awk -F'|' -v n="$sub" '$1==n {print; exit}' "$PICK_ACTIONS")
+                if [[ -n "${cmd:-}" ]]; then
+                    bash -c "$cmd"
+                    return
+                fi
+            fi
+            if command -v fzf >/dev/null 2>&1; then
+                choice="$(awk -F'|' '!/^#/ && $1!="" {print $1 " — " $2}' "$PICK_ACTIONS" | fzf --prompt='PICK run > ')" || return 0
+                name="${choice%% — *}"
+                action_command launch "$name"
+            else
+                action_command list
+                echo "Run: pick run launch NAME"
+            fi
+            ;;
+    esac
+}
+
+theme_command() {
+    local file="${XDG_CONFIG_HOME:-$HOME/.config}/pick/themes.tsv"
+    local sub="${1:-menu}" choice name path answer
+    [[ -e "$file" ]] || printf '# name|wallpaper_path\n' > "$file"
+
+    case "$sub" in
+        add)
+            name="${2:-}"
+            path="${3:-}"
+            [[ -n "$name" && -n "$path" ]] || {
+                echo "Usage: pick theme add NAME /path/to/wallpaper"
+                return 2
+            }
+            [[ -f "$path" ]] || { echo "Wallpaper file not found: $path"; return 1; }
+            if grep -Fq "$name|" "$file"; then
+                echo "A profile with that name may already exist."
+                read -r -p "Append another profile anyway? [y/N] " answer
+                [[ "$answer" == [yY] ]] || return 0
+            fi
+            printf '%s|%s\n' "$name" "$path" >> "$file"
+            echo "Saved theme profile: $name"
+            ;;
+        list)
+            awk -F'|' '!/^#/ && NF>=2 && $1!="" {print $1 " — " $2}' "$file"
+            ;;
+        apply)
+            name="${2:-}"
+            [[ -n "$name" ]] || { echo "Usage: pick theme apply NAME"; return 2; }
+            path="$(awk -F'|' -v n="$name" '$1==n {print $2; exit}' "$file")"
+            [[ -n "$path" && -f "$path" ]] || { echo "Profile or wallpaper file not found."; return 1; }
+            echo "Profile: $name"
+            echo "Wallpaper: $path"
+            echo "Preview only: this version does not apply the wallpaper or alter Kitty/shell themes."
+            ;;
+        *)
+            if command -v fzf >/dev/null 2>&1 && [[ -t 0 ]]; then
+                choice="$(awk -F'|' '!/^#/ && NF>=2 && $1!="" {print $1 "\t" $2}' "$file" |
+                    fzf --delimiter=$'\t' --with-nth=1,2 --prompt='PICK theme > ' \
+                        --header='Saved profiles • Enter to preview • Esc to cancel')" || return 0
+                name="${choice%%$'\t'*}"
+                theme_command apply "$name"
+            else
+                echo "Saved theme profiles:"
+                theme_command list
+                echo
+                echo "Usage: pick theme add NAME /path/to/wallpaper"
+                echo "Install fzf for the searchable theme menu."
+            fi
+            ;;
+    esac
+}
+
+
+audio_command() {
+    local mode="${1:-menu}" status rows choice kind id name answer current
+    if ! command -v wpctl >/dev/null 2>&1; then
+        printf 'ERROR: wpctl unavailable; check PipeWire/WirePlumber.\n'
+        return 1
+    fi
+
+    case "$mode" in
+        -h|--help)
+            printf 'Usage: pick audio [ -E | list | output | mic ]\n'
+            printf '  audio       Search audio devices; inspect selection without changing defaults\n'
+            printf '  audio -E    Edit default output or microphone\n'
+            printf '  audio list  Show full wpctl status\n'
+            return 0 ;;
+        list) wpctl status; return $? ;;
+        output) mode=output ;;
+        mic|microphone) mode=mic ;;
+        -E) mode=edit ;;
+        *) mode=menu ;;
+    esac
+
+    status="$(wpctl status)" || return 1
+    rows="$(printf '%s\n' "$status" | python -c '
+import re, sys
+section = ""
+for line in sys.stdin:
+    if re.search(r"├─ Sinks:", line):
+        section = "O"
+        continue
+    if re.search(r"├─ Sources:", line):
+        section = "M"
+        continue
+    if re.search(r"├─ (Filters|Streams|Devices):", line):
+        section = ""
+        continue
+    if section:
+        m = re.search(r"(\d+)\.\s+(.+)$", line)
+        if m:
+            print(f"{section}\t{m.group(1)}\t{m.group(2).strip()}")
+')" || return 1
+
+    if [[ -z "$rows" ]]; then
+        echo "No audio outputs or microphones detected."
+        return 1
+    fi
+
+    if [[ "$mode" == output ]]; then
+        rows="$(printf '%s\n' "$rows" | awk -F '\t' '$1=="O"')"
+    elif [[ "$mode" == mic ]]; then
+        rows="$(printf '%s\n' "$rows" | awk -F '\t' '$1=="M"')"
+    fi
+    if [[ -z "$rows" ]]; then
+        echo "No matching devices detected."
+        return 1
+    fi
+
+    if ! command -v fzf >/dev/null 2>&1 || [[ ! -t 0 ]]; then
+        echo "Audio devices (install/use fzf in an interactive terminal to search):"
+        printf '%s\n' "$rows" |
+            awk -F '\t' '{printf "  %-10s ID %-4s %s\n",($1=="O"?"OUTPUT":"MICROPHONE"),$2,$3}'
+        return 0
+    fi
+
+    if [[ "$mode" == edit ]]; then
+        choice="$(printf '%s\n' \
+            $'OUTPUT\tChoose default output' \
+            $'MICROPHONE\tChoose default microphone' |
+            fzf --delimiter=$'\t' --with-nth=1,2 \
+                --prompt='PICK audio editor > ' \
+                --header='Select which default to edit')" || return 0
+        kind="${choice%%$'\t'*}"
+        if [[ "$kind" == OUTPUT ]]; then
+            rows="$(printf '%s\n' "$rows" | awk -F '\t' '$1=="O"')"
+        else
+            rows="$(printf '%s\n' "$rows" | awk -F '\t' '$1=="M"')"
+        fi
+        if [[ -z "$rows" ]]; then
+            echo "No devices found for that category."
+            return 1
+        fi
+    fi
+
+    choice="$(printf '%s\n' "$rows" |
+        awk -F '\t' '{printf "%s\t%s\t%s\n",($1=="O"?"OUTPUT":"MICROPHONE"),$2,$3}' |
+        fzf --delimiter=$'\t' --with-nth=1,3 \
+            --prompt="$([[ "$mode" == edit ]] && echo 'Edit default > ' || echo 'Search audio > ')" \
+            --header="$([[ "$mode" == edit ]] && echo 'Choose a device to set as default' || echo 'Browse devices • selection does not change defaults')")" || return 0
+    IFS=$'\t' read -r kind id name <<< "$choice"
+
+    printf '\nSelected: %s — %s (ID %s)\n' "$kind" "$name" "$id"
+
+    if [[ "$mode" != edit ]]; then
+        echo "Browse mode: default devices were not changed."
+        echo "To change a default, run: pick audio -E"
+        return 0
+    fi
+
+    printf '\nCurrent default devices:\n'
+    wpctl status | grep -E 'Sinks:|Sources:|[*]?[[:space:]]*[0-9]+\.' || true
+    printf '\n'
+    read -r -p "Set '$name' as the default $([[ "$kind" == OUTPUT ]] && echo output || echo microphone)? [y/N] " answer
+    case "$answer" in
+        y|Y|yes|YES|Yes) ;;
+        *) echo "Cancelled; defaults unchanged."; return 0 ;;
+    esac
+
+    if ! wpctl set-default "$id"; then
+        echo "ERROR: wpctl could not change the default device."
+        return 1
+    fi
+    echo "Default selection command sent to WirePlumber."
+    echo "Verify the new default with: wpctl status"
+}
+
+
+
+doctor_command() {
+    local errors=0 warnings=0 oks=0
+    local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/pick"
+    local data="${XDG_DATA_HOME:-$HOME/.local/share}/pick"
+    local script="${BASH_SOURCE[0]}"
+    local c file bad count
+
+    # Consistent DMS-inspired status layout; all checks are PICK-owned.
+    local cyan='\033[0;36m' green='\033[0;32m'
+    local yellow='\033[0;33m' red='\033[0;31m' reset='\033[0m'
+
+    ok() {
+        printf "  ${green}●${reset} %-27s %s\n" "$1" "$2"
+        oks=$((oks+1))
+    }
+    warn() {
+        printf "  ${yellow}○${reset} %-27s %s\n" "$1" "$2"
+        warnings=$((warnings+1))
+    }
+    err() {
+        printf "  ${red}✖${reset} %-27s %s\n" "$1" "$2"
+        errors=$((errors+1))
+    }
+    section() {
+        printf "\n  ${cyan}%s${reset}\n  ─────────────────────────────────────────\n" "$1"
+    }
+    fix() {
+        printf "      ↳ Suggested fix: %s\n" "$*"
+    }
+
+    printf "${cyan}"
+    cat <<'PICKDOC'
+ ____  ___ ____ _  __
+|  _ \|_ _/ ___| |/ /
+| |_) || | | | ' /
+|  __/ | | |___| . \
+|_|   |_| \____|_|\_\
+PICKDOC
+    printf "${reset}"
+    printf "Personal Interactive Command Kernel\n"
+    printf "PICK System Health Check — v%s\n" "$VERSION"
+    printf "Read-only diagnostics; no automatic repairs.\n"
+
+    section "SYSTEM"
+    if [[ -r /etc/os-release ]]; then
+        . /etc/os-release
+        ok "Operating system" "${PRETTY_NAME:-Linux}"
+    else
+        warn "Operating system" "Cannot read /etc/os-release"
+    fi
+    ok "Architecture" "$(uname -m)"
+    ok "Kernel" "$(uname -r)"
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        ok "Display session" "Wayland ($WAYLAND_DISPLAY)"
+    else
+        warn "Display session" "WAYLAND_DISPLAY is unset"
+        fix "Run this check from your normal graphical session if applicable."
+    fi
+
+    section "PICK INTEGRITY"
+    if [[ -f "$script" && -r "$script" ]]; then
+        ok "PICK script" "$script"
+    else
+        err "PICK script" "Missing or unreadable: $script"
+        fix "Restore the script from a PICK backup."
+    fi
+
+    if [[ -x "$script" ]]; then
+        ok "Executable permission" "Executable"
+    else
+        err "Executable permission" "PICK is not executable"
+        fix "Run: chmod +x \"$script\""
+    fi
+
+    if bash -n "$script" 2>/dev/null; then
+        ok "Bash syntax" "No syntax errors"
+    else
+        err "Bash syntax" "Syntax check failed"
+        fix "Inspect the script with: bash -n \"$script\""
+    fi
+
+    for c in pickshell addshell delshell; do
+        if command -v "$c" >/dev/null 2>&1; then
+            ok "$c command" "$(command -v "$c")"
+        else
+            warn "$c command" "Not found in PATH"
+            fix "Check that ~/.local/bin is in PATH and the script exists."
+        fi
+    done
+
+    section "COMMAND REGISTRY"
+    file="$cfg/commands.tsv"
+    if [[ ! -f "$file" ]]; then
+        warn "Custom commands" "Registry has not been created"
+        fix "Run 'pick config' to create or edit it when needed."
+    else
+        count=0
+        bad=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            count=$((count+1))
+            if [[ "$line" != *"|"* ]]; then
+                bad=$((bad+1))
+            fi
+        done < "$file"
+        if (( bad > 0 )); then
+            warn "Custom commands" "$bad malformed line(s)"
+            fix "Each entry should use name|description|command."
+        elif (( count == 0 )); then
+            warn "Custom commands" "Registry exists but is empty"
+            fix "Add commands with 'pick config', or leave empty if unused."
+        else
+            ok "Custom commands" "$count entr$( (( count == 1 )) && echo y || echo ies )"
+        fi
+    fi
+
+    section "ACTION AND THEME REGISTRIES"
+    file="$cfg/actions.tsv"
+    if [[ ! -f "$file" ]]; then
+        warn "Actions registry" "Not created yet"
+        fix "This is optional until you configure custom actions."
+    else
+        count=0; bad=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            count=$((count+1))
+            [[ "$line" == *"|"* ]] || bad=$((bad+1))
+        done < "$file"
+        if (( bad )); then
+            warn "Actions registry" "$bad malformed entr$( (( bad == 1 )) && echo y || echo ies )"
+            fix "Use name|description|command for each action."
+        elif (( count == 0 )); then
+            warn "Actions registry" "Empty; no custom actions configured"
+        else
+            ok "Actions registry" "$count action(s)"
+        fi
+    fi
+
+    file="$cfg/themes.tsv"
+    if [[ ! -f "$file" ]]; then
+        warn "Themes registry" "Not created yet"
+        fix "Optional; create theme profiles when you want to use them."
+    else
+        count=0; bad=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            count=$((count+1))
+            [[ "$line" == *"|"* ]] || bad=$((bad+1))
+        done < "$file"
+        if (( bad )); then
+            warn "Themes registry" "$bad malformed entr$( (( bad == 1 )) && echo y || echo ies )"
+            fix "Use name|wallpaper_path for each theme."
+        elif (( count == 0 )); then
+            warn "Themes registry" "Empty; no profiles configured"
+        else
+            ok "Themes registry" "$count theme(s)"
+        fi
+    fi
+
+    section "BACKUPS"
+    if [[ -d "$data/backups" ]]; then
+        count=0
+        for file in "$data"/backups/*; do
+            [[ -d "$file" ]] && count=$((count+1))
+        done
+        ok "Backup directory" "$data/backups"
+        if (( count )); then
+            ok "Saved backups" "$count backup folder(s)"
+        else
+            warn "Saved backups" "No backups found yet"
+            fix "Run 'pick backup' to create a backup."
+        fi
+    else
+        warn "Backup directory" "Not created yet"
+        fix "Run 'pick backup' to create the directory and first backup."
+    fi
+
+    section "DEPENDENCIES"
+    for c in bash python3; do
+        if command -v "$c" >/dev/null 2>&1; then
+            ok "$c" "$(command -v "$c")"
+        else
+            err "$c" "Required tool not found"
+            fix "Install $c using your distribution's package manager."
+        fi
+    done
+
+    if command -v fzf >/dev/null 2>&1; then
+        ok "fzf" "$(command -v fzf)"
+    else
+        warn "fzf" "Searchable pickers unavailable"
+        fix "Install fzf if you want interactive searchable menus."
+    fi
+
+    section "AUDIO INTEGRATION"
+    if command -v wpctl >/dev/null 2>&1; then
+        if wpctl status >/dev/null 2>&1; then
+            ok "WirePlumber" "Audio status is accessible"
+        else
+            warn "WirePlumber" "wpctl failed to read audio status"
+            fix "Check that your user audio session is running, then retry 'wpctl status'."
+        fi
+    else
+        warn "Audio tools" "wpctl is not installed"
+        fix "Install the PipeWire/WirePlumber tools if you use PICK audio."
+    fi
+
+    section "SHELL INTEGRATION"
+    if command -v pickshell >/dev/null 2>&1; then
+        ok "Shell manager" "$(command -v pickshell)"
+    else
+        warn "Shell manager" "pickshell is unavailable"
+        fix "Check ~/.local/bin/pickshell and your PATH."
+    fi
+
+    section "CONFIGURATION"
+    ok "PICK config path" "$cfg"
+    if [[ -d "$cfg" ]]; then
+        ok "Config directory" "Present"
+    else
+        warn "Config directory" "Not created yet"
+        fix "Run a PICK command that needs configuration, or create it when needed."
+    fi
+
+    section "SUMMARY"
+    printf "  ${green}%d OK${reset}  ${yellow}%d warning(s)${reset}  ${red}%d error(s)${reset}\n" \
+        "$oks" "$warnings" "$errors"
+    if (( errors > 0 )); then
+        printf "  Result: Issues found. Follow the suggested fixes above.\n"
+    elif (( warnings > 0 )); then
+        printf "  Result: Core checks passed; review optional warnings if relevant.\n"
+    else
+        printf "  Result: All checks passed.\n"
+    fi
+    printf "  No repairs or configuration changes were performed.\n"
+    return 0
+}
+
+
+# PICK 0.1.7: Command Centre, Memory, Missions, Repair and Extensions.
+ensure_feature_dirs() {
+    mkdir -p "$PICK_DATA" "$PICK_MISSIONS" "$PICK_EXTENSIONS"
+    [[ -e "$PICK_HISTORY" ]] || : > "$PICK_HISTORY"
+}
+
+record_history() {
+    # Record only PICK invocations, not arbitrary shell history. Avoid recording secrets/arguments.
+    ensure_feature_dirs
+    printf '%s\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$PICK_HISTORY"
+}
+
+centre_command() {
+    local selected
+    local -a items=(
+        'doctor — Diagnose PICK'
+        'repair — Review suggested fixes'
+        'audio — Browse audio devices'
+        'audio -E — Edit default audio device'
+        'run — Actions and workflows'
+        'mission — Multi-step Missions'
+        'memory — Saved recipes and history'
+        'theme — Wallpaper profiles (preview only)'
+        'backup — Create a backup'
+        'backup -l — List backups'
+        'config — Custom command registry'
+        'extension — Local extension packs'
+        'shell — Shell profile picker'
+        '-help — Help'
+        'quit — Exit Command Centre'
+    )
+    while :; do
+        if [[ -t 0 && -t 1 ]] && command -v fzf >/dev/null 2>&1; then
+            selected="$(printf '%s\n' "${items[@]}" | fzf --prompt='PICK centre > ' --header="PICK $VERSION • Enter to open • Esc to exit")" || return 0
+        else
+            printf '\n%sPICK — COMMAND CENTRE%s\n' "$CYAN" "$RESET"
+            local i=1 item
+            for item in "${items[@]}"; do printf '  %2d) %s\n' "$i" "$item"; ((i+=1)); done
+            [[ -t 0 ]] || { error 'Command Centre needs an interactive terminal.'; return 1; }
+            read -r -p 'Choose number or q: ' selected || return 0
+            [[ "$selected" == q || "$selected" == quit ]] && return 0
+            if [[ "$selected" =~ ^[0-9]+$ ]] && (( selected>=1 && selected<=${#items[@]} )); then selected="${items[$((selected-1))]}"; else
+                printf '%s\n' "${items[@]}" | grep -iF -- "$selected" | head -n1 | read -r selected || true
+                [[ -n "$selected" ]] || { echo 'No matching item.'; continue; }
+            fi
+        fi
+        selected="${selected%% —*}"
+        [[ "$selected" == quit ]] && return 0
+        # Intentional word-splitting for selecting fixed, built-in menu commands only.
+        case "$selected" in
+            'audio -E') run_command audio -E ;;
+            'backup -l') run_command backup -l ;;
+            *) run_command "$selected" ;;
+        esac
+    done
+}
+
+memory_command() {
+    ensure_feature_dirs
+    local sub="${1:-menu}" name description command_text file choice query
+    [[ $# -eq 0 ]] || shift
+    case "$sub" in
+        history)
+            if [[ -s "$PICK_HISTORY" ]]; then tail -n 100 "$PICK_HISTORY"; else echo 'No PICK command history yet.'; fi ;;
+        save|add)
+            name="${1:-}"; shift || true
+            [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Usage: pick memory save NAME'; return 2; }
+            ensure_config
+            file="$PICK_DATA/recipes.tsv"
+            [[ -e "$file" ]] || printf '# name|description|command\n' > "$file"
+            if [[ -t 0 ]]; then
+                local editor="${VISUAL:-${EDITOR:-nano}}"
+                printf '%s||\n' "$name" >> "$file"
+                "$editor" "$file"
+            else
+                echo 'Recipe editor requires an interactive terminal.'; return 1
+            fi ;;
+        list)
+            file="$PICK_DATA/recipes.tsv"
+            if [[ -f "$file" ]]; then awk -F'|' '!/^#/ && $1!="" {printf "%-18s %s\n",$1,$2}' "$file"; else echo 'No recipes saved. Use: pick memory save NAME'; fi ;;
+        search)
+            query="${1:-}"; file="$PICK_DATA/recipes.tsv"
+            [[ -f "$file" ]] || { echo 'No recipes saved yet.'; return 0; }
+            awk -F'|' -v q="$query" 'BEGIN{IGNORECASE=1} !/^#/ && (q=="" || index($1,q) || index($2,q)) {print}' "$file" ;;
+        run)
+            name="${1:-}"; file="$PICK_DATA/recipes.tsv"
+            [[ -n "$name" && -f "$file" ]] || { echo 'Usage: pick memory run NAME'; return 2; }
+            IFS='|' read -r _ description command_text < <(awk -F'|' -v n="$name" '$1==n {print; exit}' "$file")
+            [[ -n "${command_text:-}" ]] || { error "Recipe '$name' has no command."; return 1; }
+            printf 'Recipe: %s — %s\nCommand: %s\n' "$name" "${description:-}" "$command_text"
+            read -r -p 'Run this trusted local command? [y/N] ' choice
+            [[ "$choice" == [yY] ]] || { echo 'Cancelled.'; return 0; }
+            bash -c "$command_text" ;;
+        *)
+            echo 'PICK Memory: save, list, search QUERY, history, run NAME'
+            if command -v fzf >/dev/null 2>&1 && [[ -t 0 ]]; then
+                choice="$(printf 'list\nhistory\nsave\nsearch\n' | fzf --prompt='PICK memory > ')" || return 0
+                memory_command "$choice"
+            else memory_command list; fi ;;
+    esac
+}
+
+mission_command() {
+    ensure_feature_dirs
+    local sub="${1:-menu}" name file step answer line n
+    [[ $# -eq 0 ]] || shift
+    case "$sub" in
+        create|new)
+            name="${1:-}"; [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Usage: pick mission create NAME'; return 2; }
+            file="$PICK_MISSIONS/$name.mission"
+            [[ ! -e "$file" ]] || { error 'Mission already exists.'; return 1; }
+            cat > "$file" <<'MISSION_EOF'
+# PICK Mission: one command per line; comments and blank lines are ignored.
+# Commands are trusted shell commands. Review every step before running.
+MISSION_EOF
+            local editor="${VISUAL:-${EDITOR:-nano}}"; "$editor" "$file"; echo "Created mission: $name" ;;
+        list)
+            find "$PICK_MISSIONS" -maxdepth 1 -type f -name '*.mission' -printf '%f\n' 2>/dev/null | sed 's/\.mission$//' | sort ;;
+        show|preview|run)
+            name="${1:-}"; file="$PICK_MISSIONS/$name.mission"
+            [[ -n "$name" && -f "$file" ]] || { echo 'Usage: pick mission {show|run} NAME'; return 2; }
+            echo "Mission: $name"; grep -vE '^\s*(#|$)' "$file" | nl -ba
+            [[ "$sub" != run ]] && return 0
+            read -r -p 'Run these steps one at a time, confirming each step? [y/N] ' answer
+            [[ "$answer" == [yY] ]] || { echo 'Cancelled.'; return 0; }
+            n=0
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+                n=$((n+1)); printf '\nStep %d: %s\n' "$n" "$line"
+                read -r -p 'Execute this step? [y/N/q] ' answer
+                [[ "$answer" == q ]] && { echo 'Mission stopped.'; return 0; }
+                [[ "$answer" == [yY] ]] || { echo 'Step skipped.'; continue; }
+                bash -c "$line" || { read -r -p 'Step failed. Continue? [y/N] ' answer; [[ "$answer" == [yY] ]] || return 1; }
+            done < "$file"
+            echo 'Mission finished.' ;;
+        remove|delete)
+            name="${1:-}"; file="$PICK_MISSIONS/$name.mission"
+            [[ -f "$file" ]] || { echo 'Mission not found.'; return 1; }
+            read -r -p "Delete mission '$name'? [y/N] " answer
+            [[ "$answer" == [yY] ]] && rm -- "$file" && echo 'Mission deleted.' ;;
+        *) echo 'PICK Missions: create NAME, list, show NAME, run NAME, remove NAME' ;;
+    esac
+}
+
+repair_command() {
+    printf '\n%sPICK GUIDED REPAIR%s\n' "$CYAN" "$RESET"
+    echo 'Repair mode reviews recommendations; it does not silently change your system.'
+    echo
+    doctor_command
+    echo
+    echo 'Suggested safe next steps:'
+    echo '  1. Review each warning from Doctor.'
+    echo '  2. Create a backup before changing PICK: pick backup'
+    echo '  3. Run the exact suggested command only after you understand it.'
+    echo '  4. Re-run: pick doctor'
+    echo 'Automatic system repairs are intentionally not enabled in this release.'
+}
+
+extension_command() {
+    ensure_feature_dirs
+    local sub="${1:-list}" name file
+    case "$sub" in
+        list)
+            echo "Local extension directory: $PICK_EXTENSIONS"
+            find "$PICK_EXTENSIONS" -mindepth 1 -maxdepth 1 -type f -name '*.tsv' -printf '%f\n' 2>/dev/null | sort
+            echo 'Extension packs are listed only; PICK does not download or auto-execute extensions.' ;;
+        validate)
+            name="${2:-}"; file="$PICK_EXTENSIONS/$name"
+            [[ -f "$file" ]] || { echo 'Usage: pick extension validate PACK.tsv'; return 2; }
+            awk -F'|' 'BEGIN{bad=0} /^#/ || NF==0 {next} NF<3 || $1=="" || $3=="" {printf "Malformed line %d\n",NR; bad=1} END{if(!bad) print "Pack structure looks valid."; exit bad}' "$file" ;;
+        *) echo 'PICK Extensions: list, validate PACK.tsv'; echo 'Only local packs are supported in this release.' ;;
+    esac
+}
+
+main() {
+    if [[ $# -eq 0 ]]; then
+        error "no command specified."
+        hint "-help"
+        return 2
+    fi
+
+    record_history "$1"
+    run_command "$@"
+}
+
+main "$@"

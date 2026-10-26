@@ -1,0 +1,17 @@
+# Local editor and OS files
+.DS_Store
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Local test output
+*.log
+coverage/
+
+# Never commit local configuration, backups, or environment files
+.env
+.env.*
+commands.tsv
+backups/
