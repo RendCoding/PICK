@@ -29,7 +29,8 @@ PICK is intended to install to your home directory, so the installer itself does
 
 1. Download the source ZIP and extract it.
 2. Open a terminal in the extracted `PICK` folder.
-3. Run:
+3. if need help opening folder its - open terminal, type cd ~/Downloads/PICK-main
+4. Run:
 
    ```bash
    chmod +x install.sh
