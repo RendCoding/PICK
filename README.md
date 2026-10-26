@@ -2,39 +2,33 @@
 
 **Your terminal. Your language. Your rules.**
 
-PICK is a Bash-based personal command launcher and interactive command workspace. It brings custom commands, backups, guided utilities, recipes, missions, and local extension packs into one `pick` command.
+PICK is a Bash project I’m building to make my terminal feel more personal and useful. It brings custom commands and a collection of interactive tools together under one command: `pick`.
 
-> **Status:** early public release, version `0.1.8`. Expect rough edges; please report bugs and include your distro, Bash version, and the command/output involved.
+This is an early public release, so some parts are still rough and a few features are not finished yet. If you try it and find a bug, please open an issue and include your Linux distribution, Bash version, and the command/output that caused it.
 
-## Features
+## What it can do
 
-- **Command registry** — maintain personal commands in `~/.config/pick/commands.tsv`.
-- **Backups** — create, list, explore, and restore PICK backups.
-- **Command Centre** — a central interactive entry point.
-- **Personal actions and recipes** — save and launch actions and command recipes.
-- **Missions** — organise multi-step workflows with confirmation before execution.
-- **Doctor and repair guidance** — diagnose PICK and review recommendations; repair guidance does not automatically change the system.
-- **Theme profiles** — preview theme-related settings; applying themes is not implemented yet.
-- **Audio inspection** — inspect audio devices using available system utilities.
-- **Local extension packs** — manage local packs; PICK does not download or automatically execute extensions.
-- **Optional shell-manager integration** — calls `pickshell`, `addshell`, `delshell`, or `searchshell` when those commands are installed.
+- Keep personal commands in a command registry.
+- Create, browse, and restore PICK backups.
+- Open the interactive Command Centre.
+- Save and run personal actions and command recipes.
+- Organise multi-step workflows as missions, with confirmation before execution.
+- Check PICK and show repair suggestions.
+- Preview theme-related settings. Applying themes is not implemented yet.
+- Inspect audio devices using available system tools.
+- Manage local extension packs. PICK does not download or automatically run extensions.
+- Work with the optional `pickshell` tools if they are installed.
 
-Some interactive features depend on tools available on your system. PICK does not install system dependencies for you.
-
-## Requirements
-
-- Bash
-- Standard Linux command-line utilities
-- Optional utilities are detected at runtime for specific features (for example, `fzf`, `wpctl`, or a graphical file manager)
-
-PICK is designed for user-level installation and does not require `sudo` for the included installer.
+Some features use optional programs such as `fzf`, `wpctl`, or a graphical file manager. PICK won’t install system dependencies for you.
 
 ## Install
 
-### From a downloaded source archive
+PICK is intended to install to your home directory, so the installer itself does not need `sudo`.
 
-1. Download and extract the source archive.
-2. Open a terminal in the extracted `PICK` directory.
+### Install from a downloaded archive
+
+1. Download the source ZIP and extract it.
+2. Open a terminal in the extracted `PICK` folder.
 3. Run:
 
    ```bash
@@ -42,97 +36,89 @@ PICK is designed for user-level installation and does not require `sudo` for the
    ./install.sh
    ```
 
-The installer checks Bash syntax, backs up an existing `~/.local/bin/pick` and command registry when present, then installs the script atomically to `~/.local/bin/pick`.
+The installer checks the Bash scripts, backs up an existing PICK executable and command registry if present, then installs `pick` to `~/.local/bin/pick`.
 
-Ensure `~/.local/bin` is in your `PATH`. The installer does not change your shell configuration automatically.
+Make sure `~/.local/bin` is in your `PATH`. The installer does not edit your shell configuration for you.
 
-### From a Git clone
+### Install from GitHub
 
-After publishing this repository, clone it and run the same installer:
+Once you’ve published the repository, run:
 
 ```bash
-git clone https://github.com/ YOUR-USERNAME/PICK.git
+git clone https://github.com/RendCoding/PICK.git
 cd PICK
 chmod +x install.sh
 ./install.sh
 ```
 
-Replace `YOUR-USERNAME` with the GitHub account or organisation that hosts the repository.
+If you fork the project or host it under a different account, replace the clone URL with your repository’s URL.
 
-## Quick start
+## Getting started
+
+Try these commands after installing:
 
 ```bash
 pick -help
-pick -version
 pick -V
 pick doctor
 pick centre
 ```
 
-Useful areas to explore:
+A few other places to start:
 
 ```bash
-pick config       # edit custom command registry
+pick config       # edit your custom command registry
 pick backup       # create a backup
 pick backup -l    # list backups
 pick memory       # recipes and saved command knowledge
 pick mission      # multi-step workflows
-pick repair       # review repair recommendations
-pick extension    # local extension packs
+pick repair       # review repair suggestions
+pick extension    # manage local extension packs
 ```
 
-Use `pick -help` for the command list supported by your installed version. Some commands may offer interactive subcommands; follow their displayed usage.
+Use `pick -help` to see the commands supported by your installed version. Some commands have interactive subcommands; PICK will show the available options.
 
-## Configuration and data
+## Where PICK keeps things
 
-- Command registry: `${XDG_CONFIG_HOME:-~/.config}/pick/commands.tsv`
-- Backups: `${XDG_DATA_HOME:-~/.local/share}/pick/backups/`
-- Executable: `~/.local/bin/pick`
+- **Executable:** `~/.local/bin/pick`
+- **Command registry:** `${XDG_CONFIG_HOME:-~/.config}/pick/commands.tsv`
+- **Backups:** `${XDG_DATA_HOME:-~/.local/share}/pick/backups/`
 
-The command registry uses this format:
+The command registry uses one entry per line, in this format:
 
 ```text
 name|description|command
 ```
 
-Only add commands you trust. Custom command entries are executed by Bash, so they can run with the same permissions as your user account.
+Only add commands you trust. PICK runs custom command entries through Bash, so they can do anything your user account has permission to do.
 
-## Safety notes
+## A few things to know
 
-- Review custom commands before running them; registry entries are trusted shell commands.
-- Missions and saved recipes require confirmation before execution.
-- Repair provides recommendations and does not perform automatic system changes.
-- Extension packs are local-only and are not downloaded or auto-executed.
-- Theme application remains preview-only.
-- The installer backs up the existing PICK script and, if present, the command registry before replacing the script.
-- PICK does not need root privileges for its own installation. Individual commands you choose to run may have their own effects and permissions.
+- Missions and saved recipes ask for confirmation before running.
+- Repair shows suggestions; it does not automatically change your system.
+- Extension packs are local-only and are not downloaded or automatically executed.
+- Theme support is currently preview-only.
+- The installer backs up the existing PICK executable and command registry, when present, before replacing the executable.
+- PICK’s installer does not need root privileges. Commands you choose to run may still make changes or require their own permissions.
 
-## Development checks
+## Development
 
-Before submitting a change, run:
+Before submitting a change, check the scripts with:
 
 ```bash
 bash -n pick
 bash -n install.sh
 ```
 
-Please test interactive behaviour on your own setup as well. Automated smoke checks cannot cover every desktop environment or optional dependency.
+Those checks catch syntax errors, but they don’t cover every interactive feature or desktop setup. Please test the change on your own system too.
 
 ## Contributing
 
-Bug reports, small fixes, and documentation improvements are welcome. Please include:
+Bug reports, small fixes, and documentation improvements are welcome. When reporting a problem, please include:
 
-- Linux distribution and Bash version
-- PICK version (`pick -version`)
+- Your Linux distribution and Bash version
+- PICK version (`pick -V`)
 - The command you ran and the exact output
-- Whether the relevant optional dependencies are installed
+- Whether relevant optional dependencies are installed
 
-Avoid including personal paths, tokens, passwords, or other sensitive data in issue reports.
-
-## Version history
-
-See [CHANGELOG.md](CHANGELOG.md).
-
-## License
-
-PICK is distributed under the MIT License. See [LICENSE](LICENSE).
+Please leave out personal paths, access tokens, passwords, and other sensitive information from issues.
