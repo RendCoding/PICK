@@ -42,16 +42,27 @@ Make sure `~/.local/bin` is in your `PATH`. The installer does not edit your she
 
 ### Install from GitHub
 
-Once you’ve published the repository, run:
+You can install PICK directly from GitHub.
 
+Open a terminal.
+
+Clone the repository and enter the project folder:
 ```bash
 git clone https://github.com/RendCoding/PICK.git
 cd PICK
+```
+Run the installer:
+```bash
 chmod +x install.sh
 ./install.sh
 ```
+Once the installation finishes, check that PICK works:
+```bash
+pick -help
+```
+The installer places PICK in ~/.local/bin/pick and backs up an existing installation and command registry when present. It does not automatically edit your shell configuration, so make sure ~/.local/bin is in your PATH.
 
-If you fork the project or host it under a different account, replace the clone URL with your repository’s URL.
+You don't need to clone the repository again to use PICK after installation.
 
 ## Getting started
 
